@@ -5,7 +5,7 @@
 
 VOID DriverUnload(PDRIVER_OBJECT);
 NTSTATUS ProcessProtectorCreateClose(PDEVICE_OBJECT, PIRP);
-NTSTATUS ProcessProtectorIOControl(PDEVICE_OBJECT, PIRP);
+NTSTATUS ProcessProtectorIoControl(PDEVICE_OBJECT, PIRP);
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -15,7 +15,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 	DriverObject->DriverUnload = DriverUnload;
 	DriverObject->MajorFunction[IRP_MJ_CREATE] =
 		DriverObject->MajorFunction[IRP_MJ_CLOSE] = ProcessProtectorCreateClose;
-	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = ProcessProtectorIOControl;
+	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = ProcessProtectorIoControl;
 	// Additional initialization code can go here
 	return STATUS_SUCCESS;
 }
@@ -37,10 +37,10 @@ NTSTATUS ProcessProtectorCreateClose(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	return STATUS_SUCCESS;
 }
 
-NTSTATUS ProcessProtectorIOControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
+NTSTATUS ProcessProtectorIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
 	UNREFERENCED_PARAMETER(DeviceObject);
-	KdPrint((DRIVER_PREFIX "ProcessProtectorIOControl called\n"));
+	KdPrint((DRIVER_PREFIX "ProcessProtectorIoControl called\n"));
 	switch (IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.IoControlCode)
 	{
 	case IOCTL_PROCESS_PROTECT_BY_PID: {
