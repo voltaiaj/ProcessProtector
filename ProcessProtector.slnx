@@ -1,0 +1,12 @@
+<Solution>
+  <Configurations>
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="ProcessProtector/ProcessProtector.vcxproj">
+    <Deploy />
+  </Project>
+  <Project Path="ProcessProtectorClient/ProcessProtectorClient.vcxproj" Id="77cf4d9e-cf79-4825-87e9-5a5bf500b31d">
+    <Platform Project="x64" />
+  </Project>
+</Solution>
