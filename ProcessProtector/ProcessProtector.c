@@ -2,6 +2,7 @@
 #include "ProcessProtectorCommon.h"
 
 #define DRIVER_PREFIX "ProcessProtector: "
+#define PROCESS_TERMINATE (0x0001)
 
 VOID DriverUnload(PDRIVER_OBJECT);
 NTSTATUS ProcessProtectorCreateClose(PDEVICE_OBJECT, PIRP);
@@ -15,6 +16,11 @@ typedef struct _Globals{
 } Globals;
 
 Globals g_Globals;
+
+typedef struct _ProtectedProcessEntry {
+	LIST_ENTRY ListEntry;
+	HANDLE ProcessId;
+} ProtectedProcessEntry;
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
@@ -42,6 +48,8 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
 	PVOID regHandle;
 	ObRegisterCallbacks(&obCallbackRegistration, &regHandle); // Placeholder for actual callback registration
+
+	InitializeListHead(&g_Globals.ProtectedProcessesListHead);
 
 	return STATUS_SUCCESS;
 }
@@ -92,6 +100,25 @@ NTSTATUS ProcessProtectorIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	return STATUS_SUCCESS;
 }
 
+BOOLEAN IsProcessProtected(HANDLE ProcessId)
+{
+	BOOLEAN isProtected = FALSE;
+	ExAcquireFastMutex(&g_ProtectedProcessesMutex);
+	PLIST_ENTRY entry = g_Globals.ProtectedProcessesListHead.Flink;
+	while (entry != &g_Globals.ProtectedProcessesListHead)
+	{
+		ProtectedProcessEntry* protectedEntry = CONTAINING_RECORD(entry, ProtectedProcessEntry, ListEntry);
+		if (protectedEntry->ProcessId == ProcessId)
+		{
+			isProtected = TRUE;
+			break;
+		}
+		entry = entry->Flink;
+	}
+	ExReleaseFastMutex(&g_ProtectedProcessesMutex);
+	return isProtected;
+}
+
 OB_PREOP_CALLBACK_STATUS OnPreOpenProcess(PVOID RegistrationContext, POB_PRE_OPERATION_INFORMATION OperationInformation)
 {
 	UNREFERENCED_PARAMETER(RegistrationContext);
@@ -99,13 +126,19 @@ OB_PREOP_CALLBACK_STATUS OnPreOpenProcess(PVOID RegistrationContext, POB_PRE_OPE
 	KdPrint((DRIVER_PREFIX "OnPreOpenProcess called\n"));
 	// Here you would implement the logic to check if the process is protected
 	// and deny access if necessary. For now, we just log the event.
-	if (OperationInformation->ObjectType == PsProcessType)
+	if (OperationInformation->ObjectType == *PsProcessType)
 	{
 		PEPROCESS targetProcess = (PEPROCESS)OperationInformation->Object;
 		HANDLE targetPid = PsGetProcessId(targetProcess);
 		KdPrint((DRIVER_PREFIX "Attempt to open process with PID: %u\n", (ULONG)(ULONG_PTR)targetPid));
 		// Implement your protection logic here
-
+		BOOLEAN isProtected = IsProcessProtected(targetPid);
+		BOOLEAN isTerminateAccess = (OperationInformation->Parameters->CreateHandleInformation.DesiredAccess & PROCESS_TERMINATE) != 0;
+		if (isProtected && isTerminateAccess)
+		{
+			KdPrint((DRIVER_PREFIX "Removing terminate access to protected process with PID: %u\n", (ULONG)(ULONG_PTR)targetPid));
+			OperationInformation->Parameters->CreateHandleInformation.DesiredAccess &= ~PROCESS_TERMINATE; // Deny terminate access
+		}
 	}
 	return OB_PREOP_SUCCESS; // Returning OB_PREOP_SUCCESS means we are not denying access
 }
