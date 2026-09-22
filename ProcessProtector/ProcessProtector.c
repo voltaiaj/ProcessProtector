@@ -43,6 +43,33 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 		1
 	};
 
+	UNICODE_STRING deviceName = RTL_CONSTANT_STRING(L"\\Device\\ProcessProtector");
+	PDEVICE_OBJECT deviceObject = NULL;
+	NTSTATUS status = IoCreateDevice(
+		DriverObject,
+		0,
+		&deviceName,
+		FILE_DEVICE_UNKNOWN,
+		FILE_DEVICE_SECURE_OPEN,
+		FALSE,
+		&deviceObject
+	);
+
+	if (!NT_SUCCESS(status)) {
+		KdPrint((DRIVER_PREFIX "Failed to create device (0x%08X)\n", status));
+		return status;
+	}
+
+	UNICODE_STRING symbolicLinkName = RTL_CONSTANT_STRING(L"\\??\\ProcessProtector");
+	status = IoCreateSymbolicLink(&symbolicLinkName, &deviceName);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((DRIVER_PREFIX "Failed to create symbolic link (0x%08X)\n", status));
+		IoDeleteDevice(deviceObject);
+		return status;
+	}
+
+	deviceObject->Flags |= DO_BUFFERED_IO;
+
 	obCallbackRegistration.OperationRegistration = &obRegistration;
 	RtlInitUnicodeString(&obCallbackRegistration.Altitude, L"12345.6171");
 
