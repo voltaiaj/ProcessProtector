@@ -10,6 +10,7 @@ NTSTATUS ProcessProtectorIoControl(PDEVICE_OBJECT, PIRP);
 OB_PREOP_CALLBACK_STATUS OnPreOpenProcess(PVOID, POB_PRE_OPERATION_INFORMATION);
 
 FAST_MUTEX g_ProtectedProcessesMutex;
+PVOID regHandle;
 
 typedef struct _Globals{
 	LIST_ENTRY ProtectedProcessesListHead;
@@ -73,10 +74,11 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 	obCallbackRegistration.OperationRegistration = &obRegistration;
 	RtlInitUnicodeString(&obCallbackRegistration.Altitude, L"12345.6171");
 
-	PVOID regHandle;
-	ObRegisterCallbacks(&obCallbackRegistration, &regHandle); // Placeholder for actual callback registration
-
+	ExInitializeFastMutex(&g_ProtectedProcessesMutex);
 	InitializeListHead(&g_Globals.ProtectedProcessesListHead);
+
+	regHandle = NULL;
+	ObRegisterCallbacks(&obCallbackRegistration, &regHandle); // Placeholder for actual callback registration
 
 	return STATUS_SUCCESS;
 }
@@ -86,6 +88,11 @@ VOID DriverUnload(PDRIVER_OBJECT DriverObject)
 	UNREFERENCED_PARAMETER(DriverObject);
 	KdPrint((DRIVER_PREFIX "DriverUnload called\n"));
 	// Cleanup code can go here
+	ObUnRegisterCallbacks(regHandle); // Placeholder for actual callback unregistration
+
+	UNICODE_STRING symbolicLinkName = RTL_CONSTANT_STRING(L"\\??\\ProcessProtector");
+	IoDeleteSymbolicLink(&symbolicLinkName);
+	IoDeleteDevice(DriverObject->DeviceObject);	
 }
 
 NTSTATUS ProcessProtectorCreateClose(PDEVICE_OBJECT DeviceObject, PIRP Irp)
@@ -106,14 +113,80 @@ NTSTATUS ProcessProtectorIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	{
 	case IOCTL_PROCESS_PROTECT_BY_PID: {
 		KdPrint((DRIVER_PREFIX "IOCTL_PROCESS_PROTECT_BY_PID called\n"));
+		if (IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.InputBufferLength < sizeof(HANDLE)) {
+			KdPrint((DRIVER_PREFIX "Input buffer too small for IOCTL_PROCESS_PROTECT_BY_PID\n"));
+			Irp->IoStatus.Status = STATUS_BUFFER_TOO_SMALL;
+			Irp->IoStatus.Information = 0;
+			IoCompleteRequest(Irp, IO_NO_INCREMENT);
+			return STATUS_BUFFER_TOO_SMALL;
+		}
+		if (IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.InputBufferLength % sizeof(HANDLE) != 0) {
+			KdPrint((DRIVER_PREFIX "Input buffer length is not a multiple of HANDLE size for IOCTL_PROCESS_PROTECT_BY_PID\n"));
+			Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+			Irp->IoStatus.Information = 0;
+			IoCompleteRequest(Irp, IO_NO_INCREMENT);
+			return STATUS_INVALID_PARAMETER;
+		}
+		PHANDLE pPids = (PHANDLE)Irp->AssociatedIrp.SystemBuffer;
+		ULONG numPids = IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.InputBufferLength / sizeof(HANDLE);
+		for (ULONG i = 0; i < numPids; ++i) {
+			// Add each PID to the protected list
+			ExAcquireFastMutex(&g_ProtectedProcessesMutex);
+			ProtectedProcessEntry* entry = (ProtectedProcessEntry*)ExAllocatePoolWithTag(NonPagedPool, sizeof(ProtectedProcessEntry), 'prcP');
+			if (entry) {
+				entry->ProcessId = pPids[i];
+				InsertTailList(&g_Globals.ProtectedProcessesListHead, &entry->ListEntry);
+			}
+			ExReleaseFastMutex(&g_ProtectedProcessesMutex);
+		}
 		break;
 	}
 	case IOCTL_PROCESS_UNPROTECT_BY_PID: {
 		KdPrint((DRIVER_PREFIX "IOCTL_PROCESS_UNPROTECT_BY_PID called\n"));
+		if (IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.InputBufferLength < sizeof(HANDLE)) {
+			KdPrint((DRIVER_PREFIX "Input buffer too small for IOCTL_PROCESS_UNPROTECT_BY_PID\n"));
+			Irp->IoStatus.Status = STATUS_BUFFER_TOO_SMALL;
+			Irp->IoStatus.Information = 0;
+			IoCompleteRequest(Irp, IO_NO_INCREMENT);
+			return STATUS_BUFFER_TOO_SMALL;
+		}
+		if (IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.InputBufferLength % sizeof(HANDLE) != 0) {
+			KdPrint((DRIVER_PREFIX "Input buffer length is not a multiple of HANDLE size for IOCTL_PROCESS_UNPROTECT_BY_PID\n"));
+			Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+			Irp->IoStatus.Information = 0;
+			IoCompleteRequest(Irp, IO_NO_INCREMENT);
+			return STATUS_INVALID_PARAMETER;
+		}
+		PHANDLE pPids = (PHANDLE)Irp->AssociatedIrp.SystemBuffer;
+		ULONG numPids = IoGetCurrentIrpStackLocation(Irp)->Parameters.DeviceIoControl.InputBufferLength / sizeof(HANDLE);
+		for (ULONG i = 0; i < numPids; ++i) {
+			// Remove each PID from the protected list
+			ExAcquireFastMutex(&g_ProtectedProcessesMutex);
+			PLIST_ENTRY entry = g_Globals.ProtectedProcessesListHead.Flink;
+			while (entry != &g_Globals.ProtectedProcessesListHead) {
+				ProtectedProcessEntry* protectedEntry = CONTAINING_RECORD(entry, ProtectedProcessEntry, ListEntry);
+				if (protectedEntry->ProcessId == pPids[i]) {
+					RemoveEntryList(entry);
+					ExFreePoolWithTag(protectedEntry, 'prcP');
+					break;
+				}
+				entry = entry->Flink;
+			}
+			ExReleaseFastMutex(&g_ProtectedProcessesMutex);
+		}
 		break;
 	}
 	case IOCTL_PROCESS_PROTECT_CLEAR: {
 		KdPrint((DRIVER_PREFIX "IOCTL_PROCESS_PROTECT_CLEAR called\n"));
+		ExAcquireFastMutex(&g_ProtectedProcessesMutex);
+		PLIST_ENTRY entry = g_Globals.ProtectedProcessesListHead.Flink;
+		while (entry != &g_Globals.ProtectedProcessesListHead) {
+			ProtectedProcessEntry* protectedEntry = CONTAINING_RECORD(entry, ProtectedProcessEntry, ListEntry);
+			entry = entry->Flink;
+			RemoveEntryList(&protectedEntry->ListEntry);
+			ExFreePoolWithTag(protectedEntry, 'prcP');
+		}
+		ExReleaseFastMutex(&g_ProtectedProcessesMutex);
 		break;
 	}
 	default: {

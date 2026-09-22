@@ -27,7 +27,7 @@ int main(int argc, char* argv[])
 			break;
 		}
 		for (int i = 2; i < argc; ++i) {
-			DWORD pid = atoi(argv[i]);
+			ULONGLONG pid = atoi(argv[i]);
 			DeviceIoControl(hDevice, IOCTL_PROCESS_PROTECT_BY_PID, &pid, sizeof(pid), NULL, 0, NULL, NULL);
 		}
 		break;
@@ -38,7 +38,7 @@ int main(int argc, char* argv[])
 			break;
 		}
 		for (int i = 2; i < argc; ++i) {
-			DWORD pid = atoi(argv[i]);
+			ULONGLONG pid = atoi(argv[i]);
 			DeviceIoControl(hDevice, IOCTL_PROCESS_UNPROTECT_BY_PID, &pid, sizeof(pid), NULL, 0, NULL, NULL);
 		}
 		break;
