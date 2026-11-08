@@ -168,7 +168,7 @@ NTSTATUS ProcessProtectorIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 				ProtectedProcessEntry* protectedEntry = CONTAINING_RECORD(entry, ProtectedProcessEntry, ListEntry);
 				if (protectedEntry->ProcessId == pPids[i]) {
 					RemoveEntryList(entry);
-					ExFreePoolWithTag(protectedEntry, 'prcP');
+					ExFreePoolWithTag(protectedEntry, DRIVER_TAG);
 					break;
 				}
 				entry = entry->Flink;
@@ -185,7 +185,7 @@ NTSTATUS ProcessProtectorIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 			ProtectedProcessEntry* protectedEntry = CONTAINING_RECORD(entry, ProtectedProcessEntry, ListEntry);
 			entry = entry->Flink;
 			RemoveEntryList(&protectedEntry->ListEntry);
-			ExFreePoolWithTag(protectedEntry, 'prcP');
+			ExFreePoolWithTag(protectedEntry, DRIVER_TAG);
 		}
 		ExReleaseFastMutex(&g_ProtectedProcessesMutex);
 		break;
