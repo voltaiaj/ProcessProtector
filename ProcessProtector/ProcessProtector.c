@@ -2,6 +2,7 @@
 #include "ProcessProtectorCommon.h"
 
 #define DRIVER_PREFIX "ProcessProtector: "
+#define DRIVER_TAG 'prcP'
 #define PROCESS_TERMINATE (0x0001)
 
 VOID DriverUnload(PDRIVER_OBJECT);
@@ -132,7 +133,7 @@ NTSTATUS ProcessProtectorIoControl(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 		for (ULONG i = 0; i < numPids; ++i) {
 			// Add each PID to the protected list
 			ExAcquireFastMutex(&g_ProtectedProcessesMutex);
-			ProtectedProcessEntry* entry = (ProtectedProcessEntry*)ExAllocatePoolWithTag(NonPagedPool, sizeof(ProtectedProcessEntry), 'prcP');
+			ProtectedProcessEntry* entry = (ProtectedProcessEntry*)ExAllocatePoolWithTag(NonPagedPool, sizeof(ProtectedProcessEntry), DRIVER_TAG);
 			if (entry) {
 				entry->ProcessId = pPids[i];
 				InsertTailList(&g_Globals.ProtectedProcessesListHead, &entry->ListEntry);
